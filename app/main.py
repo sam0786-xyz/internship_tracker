@@ -303,12 +303,22 @@ def delete_task(task_id: int, _: None = Depends(require_token)):
 
 
 @app.get("/api/analysis")
-def analysis(_: None = Depends(require_token)):
+def analysis(month: str | None = None, _: None = Depends(require_token)):
+    """Return one calendar month of attendance, starting no earlier than joining."""
+    if month:
+        try:
+            month_start = datetime.strptime(month, "%Y-%m").date().replace(day=1)
+        except ValueError as error:
+            raise HTTPException(422, "Month must use YYYY-MM format") from error
+    else:
+        month_start = datetime.now(OFFICE_TZ).date().replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     with db() as conn, conn.cursor() as cursor:
         cursor.execute("""SELECT day, work_mode FROM attendance
-                          WHERE day >= %s ORDER BY day DESC LIMIT 30""", (JOIN_DATE,))
-        rows = list(reversed(cursor.fetchall()))
-    return {"days": rows, "summary": {
+                          WHERE day >= %s AND day >= %s AND day < %s ORDER BY day""",
+                       (JOIN_DATE, month_start, next_month))
+        rows = cursor.fetchall()
+    return {"month": month_start.strftime("%Y-%m"), "days": rows, "summary": {
         "tracked_days": len(rows),
         "office_days": sum(row["work_mode"] == "office" for row in rows),
         "wfh_days": sum(row["work_mode"] == "wfh" for row in rows),

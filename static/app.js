@@ -11,6 +11,7 @@ const fromDay = day => new Date(day+'T12:00:00');
 const addDays = (day, amount) => {const next=new Date(day);next.setDate(next.getDate()+amount);return next};
 function mondayOf(date){const day=new Date(date);day.setHours(12,0,0,0);day.setDate(day.getDate()-((day.getDay()+6)%7));return day}
 let selectedWeek=mondayOf(new Date());
+let selectedAnalysisMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
 let joinedOn='2026-10-05';
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2800)}
 function minutesBetween(a,b){return a&&b?Math.max(0,(new Date(b)-new Date(a))/60000):0}
@@ -38,25 +39,29 @@ function renderTasks(tasks){
   document.querySelectorAll('[data-delete-task]').forEach(b=>b.onclick=async()=>{try{await api('/tasks/'+b.dataset.deleteTask,{method:'DELETE'});load()}catch(e){toast(e.message)}});
 }
 function renderLedger(records){
-  const days=Array.from({length:7},(_,index)=>localDay(addDays(selectedWeek,index))),lookup=new Map(records.map(record=>[record.day,record]));
-  $('#week-label').textContent=`${fmtDay(days[0])} – ${fmtDay(days[6])}`;
+  const days=Array.from({length:5},(_,index)=>localDay(addDays(selectedWeek,index))),lookup=new Map(records.map(record=>[record.day,record]));
+  $('#week-label').textContent=`${fmtDay(days[0])} – ${fmtDay(days[4])}`;
   $('#next-week').disabled=selectedWeek>=mondayOf(new Date());
-  $('#attendance-list').innerHTML=days.map(day=>{const x=lookup.get(day),beforeJoining=day<joinedOn,weekend=[0,6].includes(fromDay(day).getDay()),dateCell=`<strong><small>${fmtDay(day)}</small>${fmtWeekday(day)}</strong>`;if(!x){const status=beforeJoining?'Before joining':weekend?'Weekend holiday':'No entry';const mode=weekend?'HOLIDAY':'—';return `<div class="ledger-row empty-day ${weekend?'weekend-holiday':''}">${dateCell}<span><small>Mode</small>${mode}</span><span><small>Office time</small>—</span><span class="duration-cell"><small>Status</small>${status}</span><span class="attendance-actions">${beforeJoining?'':`<button class="quiet-button add-day" data-add-day="${day}">${weekend?'Override':'Add'}</button>`}</span></div>`;}const mode=x.work_mode||'office',mins=minutesBetween(x.check_in,x.check_out),target=mins>=480,manual=x.manually_overridden||x.source==='manual_override',office=mode==='office',modeLabel={wfh:'Working from home',leave:'On leave',company_holiday:'Company holiday'};const detail=office?`${fmtHours(mins)} · ${target?'goal met':'under 8h'}`:modeLabel[mode];return `<div class="ledger-row">${dateCell}<span><small>${office?'In':'Mode'}</small>${office?fmtTime(x.check_in):mode.replace('_',' ').toUpperCase()}</span><span><small>${office?'Out':'Office time'}</small>${office?fmtTime(x.check_out):'—'}</span><span class="duration-cell ${office?(target?'on-target':'below-target'):''}"><small>${office?'Office hours':'Status'}</small>${detail}${manual?'<em class="manual-mark">MANUAL</em>':''}</span><span class="attendance-actions"><button class="quiet-button edit-attendance" data-edit-attendance="${x.day}">Edit</button><button class="quiet-button delete-attendance" data-delete-attendance="${x.day}">Delete</button></span></div>`}).join('');
+  $('#attendance-list').innerHTML=days.map(day=>{const x=lookup.get(day),beforeJoining=day<joinedOn,dateCell=`<strong><small>${fmtDay(day)}</small>${fmtWeekday(day)}</strong>`;if(!x){return `<div class="ledger-row empty-day">${dateCell}<span><small>Mode</small>—</span><span><small>Office time</small>—</span><span class="duration-cell"><small>Status</small>${beforeJoining?'Before joining':'No entry'}</span><span class="attendance-actions">${beforeJoining?'':`<button class="quiet-button add-day" data-add-day="${day}">Add</button>`}</span></div>`;}const mode=x.work_mode||'office',mins=minutesBetween(x.check_in,x.check_out),target=mins>=480,manual=x.manually_overridden||x.source==='manual_override',office=mode==='office',modeLabel={wfh:'Working from home',leave:'On leave',company_holiday:'Company holiday'};const detail=office?`${fmtHours(mins)} · ${target?'goal met':'under 8h'}`:modeLabel[mode];return `<div class="ledger-row">${dateCell}<span><small>${office?'In':'Mode'}</small>${office?fmtTime(x.check_in):mode.replace('_',' ').toUpperCase()}</span><span><small>${office?'Out':'Office time'}</small>${office?fmtTime(x.check_out):'—'}</span><span class="duration-cell ${office?(target?'on-target':'below-target'):''}"><small>${office?'Office hours':'Status'}</small>${detail}${manual?'<em class="manual-mark">MANUAL</em>':''}</span><span class="attendance-actions"><button class="quiet-button edit-attendance" data-edit-attendance="${x.day}">Edit</button><button class="quiet-button delete-attendance" data-delete-attendance="${x.day}">Delete</button></span></div>`}).join('');
   document.querySelectorAll('[data-edit-attendance]').forEach(button=>button.onclick=()=>openOverride(records.find(record=>record.day===button.dataset.editAttendance)));
   document.querySelectorAll('[data-add-day]').forEach(button=>button.onclick=()=>openOverride({day:button.dataset.addDay},true));
   document.querySelectorAll('[data-delete-attendance]').forEach(button=>button.onclick=async()=>{if(!confirm(`Delete attendance for ${fmtDay(button.dataset.deleteAttendance)}?`))return;try{await api('/attendance/'+button.dataset.deleteAttendance,{method:'DELETE'});toast('Attendance entry deleted');load()}catch(e){toast(e.message)}});
 }
 function renderChart(analysis){
-  const {days,summary}=analysis;
+  const {days,summary,month}=analysis,monthDate=new Date(`${month}-01T12:00:00`),monthEnd=new Date(monthDate.getFullYear(),monthDate.getMonth()+1,0),firstOffset=(monthDate.getDay()+6)%7,lookup=new Map(days.map(day=>[day.day,day]));
+  $('#month-label').textContent=new Intl.DateTimeFormat([], {month:'long',year:'numeric'}).format(monthDate);
+  $('#next-month').disabled=selectedAnalysisMonth>=new Date(new Date().getFullYear(),new Date().getMonth(),1);
   $('#analysis-summary').innerHTML=[
     ['Office days',summary.office_days],
     ['WFH days',summary.wfh_days],
     ['Leave days',summary.leave_days],
     ['Company holidays',summary.company_holidays]
   ].map(([label,value])=>`<div class="summary"><span>${label}</span><strong>${value}</strong></div>`).join('');
-  if(!days.length){$('#attendance-chart').innerHTML='<p class="chart-empty">Add Office, WFH, Leave, or Company Holiday attendance to see your work pattern here.</p>';return}
+  if(monthEnd < fromDay(joinedOn)){ $('#attendance-chart').innerHTML='<p class="chart-empty">Attendance tracking begins on 5 October 2026.</p>';return }
   const label={office:'Office',wfh:'WFH',leave:'Leave',company_holiday:'Company holiday'};
-  $('#attendance-chart').innerHTML=`<div class="presence-legend"><span><i class="office-dot"></i>Office</span><span><i class="wfh-dot"></i>WFH</span><span><i class="leave-dot"></i>Leave</span><span><i class="holiday-dot"></i>Company holiday</span></div><div class="presence-grid" role="list" aria-label="Recorded attendance pattern">${days.map(day=>`<div class="presence-day ${day.work_mode}" role="listitem" data-label="${fmtDay(day.day)} · ${label[day.work_mode]}"><span>${fmtDay(day.day)}</span><strong>${label[day.work_mode]}</strong></div>`).join('')}</div>`;
+  const cells=Array.from({length:firstOffset},()=>'<div class="month-day month-blank" aria-hidden="true"></div>');
+  for(let index=1;index<=monthEnd.getDate();index++){const day=localDay(new Date(monthDate.getFullYear(),monthDate.getMonth(),index)),record=lookup.get(day),weekend=[0,6].includes(fromDay(day).getDay()),beforeJoining=day<joinedOn,kind=record?.work_mode||'',text=beforeJoining?'—':record?label[kind]:weekend?'Weekend':'No entry';cells.push(`<div class="month-day ${kind} ${weekend?'is-weekend':''} ${beforeJoining?'before-joining':''}" role="listitem" aria-label="${fmtWeekday(day)}, ${fmtDay(day)}: ${text}"><span>${index}</span><strong>${text}</strong>${weekend?'<em>Weekend</em>':''}</div>`)}
+  $('#attendance-chart').innerHTML=`<div class="presence-legend"><span><i class="office-dot"></i>Office</span><span><i class="wfh-dot"></i>WFH</span><span><i class="leave-dot"></i>Leave</span><span><i class="holiday-dot"></i>Company holiday</span></div><div class="month-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="month-grid" role="list" aria-label="${$('#month-label').textContent} attendance calendar">${cells.join('')}</div>`;
 }
 function render(data,analysis,weekRecords){
   $('#today-label').textContent=new Intl.DateTimeFormat([], {weekday:'long',month:'long',day:'numeric'}).format(new Date(data.today+'T12:00:00'));
@@ -64,8 +69,8 @@ function render(data,analysis,weekRecords){
 }
 async function load(){
   if(!key){key=prompt('Enter your personal Field Notes access key. It stays only in this browser.')||'';localStorage.setItem('field-notes-key',key)}
-  const start=localDay(selectedWeek),end=localDay(addDays(selectedWeek,6));
-  try{const [data,analysis,weekRecords]=await Promise.all([api('/dashboard'),api('/analysis'),api(`/attendance?start_date=${start}&end_date=${end}`)]);render(data,analysis,weekRecords)}catch(e){toast(e.message)}
+  const start=localDay(selectedWeek),end=localDay(addDays(selectedWeek,4)),month=`${selectedAnalysisMonth.getFullYear()}-${String(selectedAnalysisMonth.getMonth()+1).padStart(2,'0')}`;
+  try{const [data,analysis,weekRecords]=await Promise.all([api('/dashboard'),api(`/analysis?month=${month}`),api(`/attendance?start_date=${start}&end_date=${end}`)]);render(data,analysis,weekRecords)}catch(e){toast(e.message)}
 }
 function toLocalInput(value){const d=new Date(value),pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
 function openOverride(record,isNew=false){
@@ -91,3 +96,5 @@ document.querySelector('[data-close-override]').onclick=()=>$('#override-dialog'
 $('#override-mode').onchange=toggleOverrideTimes;$('#add-attendance').onclick=()=>openOverride();
 $('#previous-week').onclick=()=>{selectedWeek=addDays(selectedWeek,-7);load()};
 $('#next-week').onclick=()=>{const next=addDays(selectedWeek,7);if(next<=mondayOf(new Date())){selectedWeek=next;load()}};
+$('#previous-month').onclick=()=>{selectedAnalysisMonth=new Date(selectedAnalysisMonth.getFullYear(),selectedAnalysisMonth.getMonth()-1,1);load()};
+$('#next-month').onclick=()=>{const next=new Date(selectedAnalysisMonth.getFullYear(),selectedAnalysisMonth.getMonth()+1,1),current=new Date(new Date().getFullYear(),new Date().getMonth(),1);if(next<=current){selectedAnalysisMonth=next;load()}};
